@@ -27,6 +27,11 @@
 install.bat
 ```
 
+**如果遇到编码错误，使用专用脚本：**
+```cmd
+install-deps-windows.bat
+```
+
 **Linux/macOS:**
 ```bash
 chmod +x install.sh
@@ -274,6 +279,14 @@ A: v1.1.0已修复此问题。损坏或无效的铺面文件现在会自动分�
 
 **Q: 所有音频文件都提取元数据失败**
 A: 已修复FLAC文件的兼容性问题。如仍有问题，检查音频文件是否损坏。
+
+**Q: Windows上pip安装依赖失败，出现编码错误**
+A: 使用专门的Windows安装脚本: `install-deps-windows.bat`，或手动设置编码后安装：
+```cmd
+chcp 65001
+set PYTHONIOENCODING=utf-8
+pip install mutagen httpx aiohttp fuzzywuzzy python-Levenshtein pydantic loguru PyYAML aiofiles orjson tqdm
+```
 
 **Q: Windows上路径包含中文字符出现错误**
 A: 使用双引号包围路径: `"C:\用户\音乐"`

@@ -1,5 +1,7 @@
 @echo off
-REM BeatSaber Downloader 安装脚本 (Windows)
+REM BeatMatcher Installation Script (Windows)
+REM Set UTF-8 encoding to handle requirements.txt properly
+chcp 65001 >nul 2>&1
 
 setlocal EnableDelayedExpansion
 
@@ -63,9 +65,17 @@ if not exist "requirements.txt" (
     exit /b 1
 )
 
+REM Set environment variables for proper UTF-8 handling
+set PYTHONIOENCODING=utf-8
+set LC_ALL=C.UTF-8
+
 python -m pip install -r requirements.txt
 if %errorlevel% neq 0 (
     echo 错误: 依赖包安装失败
+    echo.
+    echo 可能的解决方案:
+    echo 1. 升级pip: python -m pip install --upgrade pip
+    echo 2. 手动安装: pip install mutagen httpx aiohttp fuzzywuzzy python-Levenshtein pydantic loguru PyYAML aiofiles orjson tqdm
     pause
     exit /b 1
 )
