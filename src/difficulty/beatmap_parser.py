@@ -182,8 +182,20 @@ class BeatmapParser:
             events = [e for e in events if e is not None]
             
             if not notes:
-                self.logger.warning(f"难度没有方块数据: {difficulty_name}")
-                return None
+                self.logger.warning(f"难度没有方块数据，使用默认统计信息: {difficulty_name}")
+                # 创建默认的统计信息而不是返回None
+                return DifficultyStats(
+                    notes_count=0,
+                    obstacles_count=len(obstacles),
+                    events_count=len(events),
+                    duration=60.0,  # 默认1分钟
+                    bpm=bpm,
+                    nps=0.0,
+                    peak_nps=0.0,
+                    density_variations=[0.0],
+                    difficulty_name=difficulty_name,
+                    characteristic=characteristic
+                )
             
             # 计算统计信息
             duration = self._calculate_duration(notes, bpm)

@@ -65,14 +65,26 @@ async def process_single_audio_file(
         # 6. 分析难度
         analysis = analyzer.analyze_beatmap(downloaded_path)
         if not analysis:
-            logger.warning(f"难度分析失败，使用默认分类: {downloaded_path}")
-            # 仍然移动到输出目录，但不进行难度分类
-            return {
-                'audio_file': audio_file,
-                'beatmap': best_scored.beatmap,
-                'downloaded_path': downloaded_path,
-                'analysis': None
-            }
+            logger.warning(f"难度分析失败，将使用默认中等难度分类: {downloaded_path}")
+            # 创建一个默认的分析结果用于中等难度分类
+            from src.difficulty.models import DifficultyStats, BeatmapAnalysis, DifficultyCategory
+            default_stats = DifficultyStats(
+                notes_count=100, 
+                obstacles_count=0, 
+                events_count=0,
+                duration=180.0, 
+                bpm=120.0, 
+                nps=4.5,  # 中等难度的NPS值
+                peak_nps=4.5, 
+                density_variations=[4.5],
+                difficulty_name="Unknown", 
+                characteristic="Standard"
+            )
+            analysis = BeatmapAnalysis(
+                beatmap_id=downloaded_path.stem,
+                song_name=audio_file.title or "Unknown",
+                difficulties=[default_stats]
+            )
         
         # 7. 组织文件夹
         final_path = organizer.organize_by_difficulty(downloaded_path, analysis)

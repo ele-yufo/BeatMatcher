@@ -36,6 +36,11 @@ class DensityAnalyzer:
                 extracted_dir = downloader.extract_beatmap(beatmap_path)
                 if not extracted_dir:
                     raise BeatmapParsingError(str(beatmap_path), "ZIP文件解压失败")
+                
+                # 验证解压路径的安全性，防止目录遍历攻击
+                if not str(extracted_dir.resolve()).startswith(str(beatmap_path.parent.resolve())):
+                    raise BeatmapParsingError(str(beatmap_path), "ZIP文件包含不安全的路径，可能存在目录遍历攻击")
+                
                 analysis_path = extracted_dir
             elif beatmap_path.is_dir():
                 # 如果是目录，直接分析

@@ -18,6 +18,21 @@ class FolderManager:
         self.config = config
         self.logger = logger.bind(name=self.__class__.__name__)
         self.density_analyzer = DensityAnalyzer(config)
+        
+        # 缓存文件夹名称以提高性能
+        self._folder_cache = {}
+        for category in DifficultyCategory:
+            category_config = self.config.difficulty.categories.get(category.value)
+            if category_config:
+                self._folder_cache[category] = category_config.folder
+            else:
+                # 使用默认名称
+                defaults = {
+                    DifficultyCategory.EASY: "Easy (0-4 blocks/s)",
+                    DifficultyCategory.MEDIUM: "Medium (4-7 blocks/s)", 
+                    DifficultyCategory.HARD: "Hard (7+ blocks/s)"
+                }
+                self._folder_cache[category] = defaults.get(category, "Unknown")
     
     def organize_by_difficulty(
         self, 
@@ -245,7 +260,7 @@ class FolderManager:
         Returns:
             Path: 分类目录路径
         """
-        folder_name = self.density_analyzer.get_category_folder_name(category)
+        folder_name = self._folder_cache.get(category, "Unknown")
         return base_dir / folder_name
     
     def _handle_duplicate_filename(self, target_path: Path) -> Path:
