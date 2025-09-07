@@ -232,7 +232,7 @@ BeatMatcher/
 │   │   └── recommendation_scorer.py
 │   ├── difficulty/             # 难度分析
 │   │   ├── density_analyzer.py # 密度分析器
-│   │   ├── beatmap_parser.py   # 铺面解析器
+│   │   ├── beatmap_parser.py   # 谱面解析器
 │   │   └── models.py          # 难度模型
 │   ├── organizer/              # 文件组织管理
 │   │   └── folder_manager.py   # 文件夹管理器
