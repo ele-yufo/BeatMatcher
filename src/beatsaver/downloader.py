@@ -50,10 +50,19 @@ class BeatmapDownloader:
         safe_name = self._generate_safe_filename(beatmap)
         zip_path = output_dir / f"{safe_name}.zip"
         
-        # 检查是否已经下载
+        # 全面检查是否已经下载（包括根目录和各难度文件夹）
+        extracted_dir = output_dir / safe_name
+        existing_path = self._find_existing_beatmap(output_dir, safe_name, beatmap.id)
+        
         if zip_path.exists():
-            self.logger.info(f"谱面已存在，跳过下载: {zip_path}")
+            self.logger.info(f"谱面ZIP已存在，跳过下载: {zip_path}")
             return zip_path
+        elif extracted_dir.exists():
+            self.logger.info(f"谱面文件夹已存在，跳过下载: {extracted_dir}")
+            return extracted_dir
+        elif existing_path:
+            self.logger.info(f"谱面已存在于难度文件夹中，跳过下载: {existing_path}")
+            return existing_path
         
         self.logger.info(f"开始下载谱面: {beatmap.name} -> {zip_path}")
         
@@ -295,6 +304,44 @@ class BeatmapDownloader:
             return False
         
         return True
+    
+    def _find_existing_beatmap(self, output_dir: Path, safe_name: str, beatmap_id: str) -> Optional[Path]:
+        """查找已存在的谱面文件夹
+        
+        Args:
+            output_dir: 输出根目录
+            safe_name: 安全文件名
+            beatmap_id: 谱面ID
+            
+        Returns:
+            Optional[Path]: 找到的谱面路径，未找到返回None
+        """
+        # 常见的难度文件夹名称模式
+        difficulty_patterns = [
+            "Easy*", "Medium*", "Hard*", 
+            "*Easy*", "*Medium*", "*Hard*",
+            "*blocks*", "*NPS*", "*难度*"
+        ]
+        
+        # 搜索所有可能的目录
+        for pattern in difficulty_patterns:
+            for difficulty_dir in output_dir.glob(pattern):
+                if not difficulty_dir.is_dir():
+                    continue
+                
+                # 在难度文件夹中搜索匹配的谱面
+                # 1. 精确匹配文件夹名
+                exact_match = difficulty_dir / safe_name
+                if exact_match.exists():
+                    return exact_match
+                
+                # 2. 根据ID搜索（谱面ID是唯一的）
+                for item in difficulty_dir.iterdir():
+                    if item.is_dir() and beatmap_id in item.name:
+                        self.logger.debug(f"通过ID找到重复谱面: {item}")
+                        return item
+        
+        return None
     
     def _safe_extract_all(self, zip_file: zipfile.ZipFile, extract_dir: Path) -> None:
         """安全解压ZIP文件，防止目录遍历攻击

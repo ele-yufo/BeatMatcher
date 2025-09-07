@@ -70,19 +70,30 @@ async def process_single_audio_file(
             logger.warning(f"无合适匹配: {audio_file.title} - {audio_file.artist}")
             return None
         
-        # 3. 下载谱面ZIP文件
-        downloaded_zip_path = await downloader.download(best_match, output_dir)
-        if not downloaded_zip_path:
+        # 3. 下载谱面文件（可能返回ZIP文件或已存在的文件夹）
+        download_result = await downloader.download(best_match, output_dir)
+        if not download_result:
             logger.error(f"下载失败: {best_match.name}")
             return None
         
-        # 4. 解压ZIP文件到临时目录
-        extracted_dir = downloader.extract_beatmap(downloaded_zip_path)
-        if not extracted_dir:
-            logger.error(f"解压失败: {downloaded_zip_path}")
-            # 清理失败的ZIP文件
-            downloaded_zip_path.unlink(missing_ok=True)
-            return None
+        # 4. 处理下载结果（ZIP文件需要解压，文件夹直接使用）
+        if download_result.suffix == '.zip':
+            # 是ZIP文件，需要解压
+            downloaded_zip_path = download_result
+            extracted_dir = downloader.extract_beatmap(downloaded_zip_path)
+            if not extracted_dir:
+                logger.error(f"解压失败: {downloaded_zip_path}")
+                # 清理失败的ZIP文件
+                downloaded_zip_path.unlink(missing_ok=True)
+                return None
+            
+            # 解压成功后删除ZIP文件
+            should_cleanup_zip = True
+        else:
+            # 是已存在的文件夹，直接使用
+            extracted_dir = download_result
+            downloaded_zip_path = None
+            should_cleanup_zip = False
         
         # 5. 分析难度
         analysis = analyzer.analyze_beatmap(extracted_dir)
@@ -111,13 +122,14 @@ async def process_single_audio_file(
         # 6. 组织到难度文件夹
         final_path = await organizer.organize_by_difficulty(extracted_dir, analysis)
         
-        # 7. 清理原始ZIP文件（只保留解压后的文件夹）
-        try:
-            downloaded_zip_path.unlink()
-            logger.debug(f"已删除ZIP文件: {downloaded_zip_path}")
-        except Exception as e:
-            logger.warning(f"删除ZIP文件失败: {downloaded_zip_path} - {e}")
-            # 不影响主流程，继续处理
+        # 7. 清理原始ZIP文件（只在新下载时删除）
+        if should_cleanup_zip and downloaded_zip_path:
+            try:
+                downloaded_zip_path.unlink()
+                logger.debug(f"已删除ZIP文件: {downloaded_zip_path}")
+            except Exception as e:
+                logger.warning(f"删除ZIP文件失败: {downloaded_zip_path} - {e}")
+                # 不影响主流程，继续处理
         
         processing_time = asyncio.get_event_loop().time() - start_time
         logger.info(f"完成处理: {audio_file.title} -> {analysis.primary_difficulty_category.value} (耗时: {processing_time:.1f}秒)")
@@ -137,8 +149,9 @@ async def process_single_audio_file(
         
         # 错误恢复：清理可能产生的临时文件
         try:
-            # 如果有已下载的ZIP文件，清理它
-            if 'downloaded_zip_path' in locals() and downloaded_zip_path and downloaded_zip_path.exists():
+            # 如果有已下载的ZIP文件且需要清理，清理它
+            if ('should_cleanup_zip' in locals() and should_cleanup_zip and 
+                'downloaded_zip_path' in locals() and downloaded_zip_path and downloaded_zip_path.exists()):
                 downloaded_zip_path.unlink()
                 logger.debug(f"清理失败任务的ZIP文件: {downloaded_zip_path}")
             
