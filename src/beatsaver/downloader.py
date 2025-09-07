@@ -2,10 +2,23 @@
 
 import asyncio
 import zipfile
+import sys
+import time
 from pathlib import Path
 from typing import Optional, Dict, Any
 from aiofiles import open as aopen
 from loguru import logger
+
+# Platform-specific file locking imports
+try:
+    if sys.platform != 'win32':
+        import fcntl
+    else:
+        import msvcrt
+except ImportError:
+    # Fallback for systems without file locking support
+    fcntl = None
+    msvcrt = None
 
 from .api_client import BeatSaverAPIClient
 from .models import BeatSaverMap
@@ -306,7 +319,7 @@ class BeatmapDownloader:
         return True
     
     def _find_existing_beatmap(self, output_dir: Path, safe_name: str, beatmap_id: str) -> Optional[Path]:
-        """查找已存在的谱面文件夹
+        """查找已存在的谱面文件夹（优化版本）
         
         Args:
             output_dir: 输出根目录
@@ -316,30 +329,37 @@ class BeatmapDownloader:
         Returns:
             Optional[Path]: 找到的谱面路径，未找到返回None
         """
-        # 常见的难度文件夹名称模式
-        difficulty_patterns = [
-            "Easy*", "Medium*", "Hard*", 
-            "*Easy*", "*Medium*", "*Hard*",
-            "*blocks*", "*NPS*", "*难度*"
-        ]
-        
-        # 搜索所有可能的目录
-        for pattern in difficulty_patterns:
-            for difficulty_dir in output_dir.glob(pattern):
-                if not difficulty_dir.is_dir():
+        # 只搜索一级子目录，避免深度遍历性能问题
+        try:
+            for item in output_dir.iterdir():
+                if not item.is_dir():
                     continue
                 
-                # 在难度文件夹中搜索匹配的谱面
-                # 1. 精确匹配文件夹名
-                exact_match = difficulty_dir / safe_name
-                if exact_match.exists():
-                    return exact_match
+                # 检查是否是难度文件夹
+                item_name_lower = item.name.lower()
+                is_difficulty_folder = any(keyword in item_name_lower for keyword in 
+                    ['easy', 'medium', 'hard', 'blocks', 'nps', '难度'])
                 
-                # 2. 根据ID搜索（谱面ID是唯一的）
-                for item in difficulty_dir.iterdir():
-                    if item.is_dir() and beatmap_id in item.name:
-                        self.logger.debug(f"通过ID找到重复谱面: {item}")
-                        return item
+                if is_difficulty_folder:
+                    # 在难度文件夹中搜索匹配的谱面
+                    # 1. 精确匹配文件夹名
+                    exact_match = item / safe_name
+                    if exact_match.exists():
+                        return exact_match
+                    
+                    # 2. 快速ID匹配（限制搜索范围）
+                    try:
+                        for beatmap_folder in item.iterdir():
+                            if (beatmap_folder.is_dir() and 
+                                beatmap_folder.name.startswith(beatmap_id + '_')):
+                                self.logger.debug(f"通过ID找到重复谱面: {beatmap_folder}")
+                                return beatmap_folder
+                    except (OSError, PermissionError):
+                        # 跳过无法访问的文件夹
+                        continue
+        
+        except (OSError, PermissionError):
+            self.logger.warning(f"无法访问输出目录: {output_dir}")
         
         return None
     

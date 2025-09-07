@@ -27,13 +27,14 @@ def find_duplicate_beatmaps(directory: Path) -> dict:
         if not item.is_dir():
             continue
             
-        # 提取谱面ID（文件夹名开头的数字+字母组合）
+        # 提取谱面ID（更严格的匹配规则）
         name = item.name
-        # 匹配类似 "15169_", "7345_" 的模式
+        # 匹配类似 "15169_", "7345_", "abc123_" 的模式
         if "_" in name:
             potential_id = name.split("_")[0]
-            # 检查是否是谱面ID格式（数字+字母）
-            if potential_id and (potential_id.isdigit() or any(c.isalpha() for c in potential_id[-3:])):
+            # 使用更严格的ID验证：BeatSaver ID格式
+            import re
+            if potential_id and re.match(r'^[0-9a-f]{1,6}$', potential_id, re.IGNORECASE):
                 beatmap_groups[potential_id].append(item)
     
     # 只返回有重复的
