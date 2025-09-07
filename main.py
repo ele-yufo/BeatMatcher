@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-BeatSaber Downloader - 自动下载本地音乐对应的Beat Saber铺面
+BeatMatcher - 自动下载本地音乐对应的 Beat Saber 谱面
 主入口文件
 """
 
@@ -34,7 +34,7 @@ async def process_single_audio_file(
     try:
         logger.info(f"处理文件: {audio_file.title} - {audio_file.artist}")
         
-        # 1. 搜索铺面 - 使用多层搜索策略
+        # 1. 搜索谱面 - 使用多层搜索策略
         search_results = await searcher.search(audio_file.title, audio_file.artist)
         
         # 如果组合搜索失败，尝试只用标题搜索
@@ -51,26 +51,28 @@ async def process_single_audio_file(
             logger.warning(f"所有搜索策略均失败: {audio_file.artist} - {audio_file.title}")
             return None
         
-        # 2. 智能匹配
-        best_matches = matcher.find_all_matches(audio_file, search_results, max_results=3)
-        if not best_matches:
-            logger.warning(f"匹配度过低: {audio_file.title}")
+        logger.info(f"找到 {len(search_results)} 个候选谱面")
+        
+        # 2. 简单匹配 - 找到第一个合理的匹配即可
+        best_match = None
+        for beatmap in search_results:
+            # 简单的相似度检查：歌名或作者有一个匹配就算成功
+            title_match = simple_similarity(audio_file.title, beatmap.metadata.song_name) > 0.3
+            artist_match = simple_similarity(audio_file.artist, beatmap.metadata.song_author_name) > 0.3
+            
+            if title_match or artist_match:
+                best_match = beatmap
+                logger.info(f"找到匹配: {beatmap.metadata.song_name} by {beatmap.metadata.song_author_name}")
+                break
+        
+        if not best_match:
+            logger.warning(f"无合适匹配: {audio_file.title} - {audio_file.artist}")
             return None
         
-        # 3. 评分排序
-        scored_maps = scorer.score_beatmaps(best_matches)
-        if not scored_maps:
-            logger.warning(f"评分失败: {audio_file.title}")
-            return None
-        
-        # 4. 选择最佳铺面
-        best_scored = scored_maps[0]
-        logger.info(f"选择铺面: {best_scored.beatmap.name} (匹配分数: {best_scored.match_score:.3f}, 推荐分数: {best_scored.recommendation_score:.3f})")
-        
-        # 5. 下载铺面
-        downloaded_path = await downloader.download(best_scored.beatmap, output_dir)
+        # 3. 直接下载谱面
+        downloaded_path = await downloader.download(best_match, output_dir)
         if not downloaded_path:
-            logger.error(f"下载失败: {best_scored.beatmap.name}")
+            logger.error(f"下载失败: {best_match.name}")
             return None
         
         # 6. 分析难度
@@ -104,7 +106,7 @@ async def process_single_audio_file(
         
         return {
             'audio_file': audio_file,
-            'beatmap': best_scored.beatmap,
+            'beatmap': best_match,
             'downloaded_path': downloaded_path,
             'final_path': final_path,
             'analysis': analysis
@@ -115,10 +117,36 @@ async def process_single_audio_file(
         return None
 
 
+def simple_similarity(str1: str, str2: str) -> float:
+    """简单的字符串相似度计算"""
+    if not str1 or not str2:
+        return 0.0
+    
+    str1 = str1.lower().strip()
+    str2 = str2.lower().strip()
+    
+    # 完全匹配
+    if str1 == str2:
+        return 1.0
+    
+    # 包含匹配
+    if str1 in str2 or str2 in str1:
+        return 0.8
+    
+    # 词汇匹配
+    words1 = set(str1.split())
+    words2 = set(str2.split())
+    
+    if words1 & words2:  # 有交集
+        return len(words1 & words2) / max(len(words1), len(words2))
+    
+    return 0.0
+
+
 async def main():
     """主函数"""
     parser = argparse.ArgumentParser(
-        description="BeatSaber Downloader - 自动下载本地音乐对应的Beat Saber铺面",
+        description="BeatMatcher - 自动下载本地音乐对应的 Beat Saber 谱面",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例用法:
@@ -128,7 +156,7 @@ async def main():
         """
     )
     parser.add_argument("--music-dir", type=str, required=True, help="本地音乐目录路径")
-    parser.add_argument("--output-dir", type=str, required=True, help="输出铺面目录路径")
+    parser.add_argument("--output-dir", type=str, required=True, help="输出谱面目录路径")
     parser.add_argument("--config", type=str, default="config/settings.yaml", help="配置文件路径")
     parser.add_argument("--max-files", type=int, help="最大处理文件数（用于测试）")
     parser.add_argument("--dry-run", action="store_true", help="只搜索和匹配，不下载文件")
@@ -142,7 +170,7 @@ async def main():
         logger = setup_logger(config.log_level, config.log_file)
         
         logger.info("=" * 60)
-        logger.info("开始BeatSaber铺面下载任务")
+        logger.info("开始 BeatSaber 谱面下载任务")
         logger.info(f"音乐目录: {args.music_dir}")
         logger.info(f"输出目录: {args.output_dir}")
         logger.info(f"配置文件: {args.config}")
@@ -222,7 +250,7 @@ async def main():
                         
                         logger.info("难度分布:")
                         for category, count in category_stats.items():
-                            logger.info(f"  {category}: {count} 个铺面")
+                            logger.info(f"  {category}: {count} 个谱面")
                         
                         # 显示组织统计
                         org_stats = organizer.get_category_statistics(output_dir)
@@ -254,7 +282,7 @@ async def main():
                 logger.info(f"模拟运行完成！匹配结果: {len(match_results)}/{len(audio_files)} 成功")
                 
                 if match_results:
-                    logger.info("匹配的铺面:")
+                    logger.info("匹配的谱面:")
                     for result in match_results[:10]:  # 只显示前10个
                         audio = result['audio_file']
                         match = result['best_match']
