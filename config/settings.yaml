@@ -20,31 +20,31 @@ beatsaver:
 
 # 匹配配置
 matching:
-  # 匹配权重
-  artist_weight: 0.6
-  title_weight: 0.4
+  # 匹配权重 - 标题权重更高，因为标题通常更标准化
+  artist_weight: 0.4
+  title_weight: 0.6
   
-  # 相似度阈值 (0.0-1.0)
-  minimum_similarity: 0.7
+  # 相似度阈值 (0.0-1.0) - 降低阈值提高匹配成功率
+  minimum_similarity: 0.5  # 从0.7降低到0.5
   
   # 字符串预处理
   normalize_case: true
   remove_special_chars: true
   
-  # 模糊匹配参数
-  fuzzy_ratio_threshold: 80
+  # 模糊匹配参数 - 降低阈值允许更多近似匹配
+  fuzzy_ratio_threshold: 65  # 从80降低到65
 
-# 推荐评分配置
+# 推荐评分配置  
 scoring:
-  # 评分权重
-  download_count_weight: 0.3
-  rating_weight: 0.4
-  upvote_ratio_weight: 0.2
-  recency_weight: 0.1
+  # 评分权重 - 平衡下载量和质量
+  download_count_weight: 0.25
+  rating_weight: 0.3
+  upvote_ratio_weight: 0.25
+  recency_weight: 0.2
   
-  # 最小评分要求
-  minimum_rating: 0.5
-  minimum_downloads: 10
+  # 降低最小要求，提高匹配成功率
+  minimum_rating: 0.3        # 从0.5降低到0.3
+  minimum_downloads: 5       # 从10降低到5
 
 # 难度分析配置
 difficulty:

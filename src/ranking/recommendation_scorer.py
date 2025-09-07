@@ -177,16 +177,20 @@ class RecommendationScorer:
         Returns:
             bool: 是否满足要求
         """
-        # 检查最低评分
-        if beatmap.stats.rating < self.config.scoring.minimum_rating:
-            return False
-        
-        # 检查最低下载量
-        if beatmap.stats.downloads < self.config.scoring.minimum_downloads:
-            return False
-        
-        # 检查是否有有效版本
+        # 检查是否有有效版本（这是必须的）
         if not beatmap.versions:
+            self.logger.debug(f"铺面 {beatmap.id} 没有有效版本")
+            return False
+        
+        # 检查最低评分 - 如果评分为0或None，给予通过机会
+        if beatmap.stats.rating is not None and beatmap.stats.rating > 0:
+            if beatmap.stats.rating < self.config.scoring.minimum_rating:
+                self.logger.debug(f"铺面 {beatmap.id} 评分过低: {beatmap.stats.rating} < {self.config.scoring.minimum_rating}")
+                return False
+        
+        # 检查最低下载量 - 更宽松的处理
+        if beatmap.stats.downloads < self.config.scoring.minimum_downloads:
+            self.logger.debug(f"铺面 {beatmap.id} 下载量过低: {beatmap.stats.downloads} < {self.config.scoring.minimum_downloads}")
             return False
         
         return True

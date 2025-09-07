@@ -1,0 +1,97 @@
+# BeatMatcher 高成功率配置文件
+# 针对大量音乐库优化，最大化匹配成功率
+
+# 日志配置
+logging:
+  level: "INFO"
+  file: "logs/beatmatcher.log"
+  format: "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} | {message}"
+  rotation: "10 MB"
+  retention: "7 days"
+
+# BeatSaver API 配置
+beatsaver:
+  base_url: "https://api.beatsaver.com"
+  search_endpoint: "/search/text"
+  download_endpoint: "/download/key/{id}"
+  request_delay: 0.8  # 稍微降低延迟提高速度
+  max_retries: 3
+  timeout: 30
+  user_agent: "BeatMatcher/1.0"
+
+# 极度宽松的匹配配置
+matching:
+  # 匹配权重 - 更注重标题匹配
+  artist_weight: 0.3
+  title_weight: 0.7
+  
+  # 大幅降低相似度阈值
+  minimum_similarity: 0.35  # 非常宽松的阈值
+  
+  # 字符串预处理
+  normalize_case: true
+  remove_special_chars: true
+  
+  # 非常宽松的模糊匹配
+  fuzzy_ratio_threshold: 55
+
+# 最宽松的推荐评分配置
+scoring:
+  # 评分权重 - 降低质量要求
+  download_count_weight: 0.1
+  rating_weight: 0.1
+  upvote_ratio_weight: 0.3
+  recency_weight: 0.5  # 偏向新铺面
+  
+  # 几乎没有最小要求
+  minimum_rating: 0.0    # 接受所有评分
+  minimum_downloads: 1   # 只要有人下载过
+
+# 难度分析配置
+difficulty:
+  categories:
+    easy: 
+      min: 0
+      max: 4
+      folder: "Easy (0-4 blocks/s)"
+    
+    medium:
+      min: 4
+      max: 7
+      folder: "Medium (4-7 blocks/s)"
+    
+    hard:
+      min: 7
+      max: 999
+      folder: "Hard (7+ blocks/s)"
+
+# 文件处理配置
+files:
+  supported_audio_formats: 
+    - ".mp3"
+    - ".flac"
+    - ".ogg"
+    - ".wav"
+    - ".m4a"
+    - ".aac"
+  
+  download_timeout: 300
+  max_concurrent_downloads: 5  # 提高并发下载数
+  
+  organize_by_difficulty: true
+  preserve_original_structure: false
+
+# 网络配置
+network:
+  connection_pool_size: 15  # 增大连接池
+  connect_timeout: 10
+  read_timeout: 30
+  max_retries: 3
+  retry_delay: 1.5
+  backoff_factor: 2.0
+
+# 性能配置 - 针对大量文件优化
+performance:
+  max_concurrent_tasks: 8    # 提高并发任务数
+  max_cache_size: 2000      # 增大缓存
+  show_progress: true

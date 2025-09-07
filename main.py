@@ -34,10 +34,21 @@ async def process_single_audio_file(
     try:
         logger.info(f"处理文件: {audio_file.title} - {audio_file.artist}")
         
-        # 1. 搜索铺面
+        # 1. 搜索铺面 - 使用多层搜索策略
         search_results = await searcher.search(audio_file.title, audio_file.artist)
+        
+        # 如果组合搜索失败，尝试只用标题搜索
         if not search_results:
-            logger.warning(f"未找到匹配的铺面: {audio_file.title}")
+            logger.info(f"组合搜索失败，尝试仅标题搜索: {audio_file.title}")
+            search_results = await searcher.search_by_title_only(audio_file.title)
+        
+        # 如果标题搜索也失败，尝试只用艺术家搜索
+        if not search_results and audio_file.artist.lower() != "unknown artist":
+            logger.info(f"标题搜索失败，尝试仅艺术家搜索: {audio_file.artist}")
+            search_results = await searcher.search_by_artist_only(audio_file.artist)
+        
+        if not search_results:
+            logger.warning(f"所有搜索策略均失败: {audio_file.artist} - {audio_file.title}")
             return None
         
         # 2. 智能匹配
