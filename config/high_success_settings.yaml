@@ -92,6 +92,8 @@ network:
 
 # 性能配置 - 针对大量文件优化
 performance:
-  max_concurrent_tasks: 8    # 提高并发任务数
+  max_concurrent_tasks: 5    # 适中的并发数避免API限制
   max_cache_size: 2000      # 增大缓存
   show_progress: true
+  batch_size: 100           # 大批量处理
+  max_failures_per_batch: 20  # 更高的失败容忍度

@@ -101,13 +101,19 @@ network:
 # 性能配置
 performance:
   # 并发处理
-  max_concurrent_tasks: 5
+  max_concurrent_tasks: 3  # 降低并发数避免API限制
   
   # 内存使用
   max_cache_size: 1000
   
   # 进度显示
   show_progress: true
+  
+  # 批量大小控制
+  batch_size: 50  # 每批处理的文件数
+  
+  # 错误处理
+  max_failures_per_batch: 10  # 每批最大失败数
 
 # 跨平台路径使用说明:
 # 

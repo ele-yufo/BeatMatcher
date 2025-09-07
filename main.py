@@ -31,6 +31,7 @@ async def process_single_audio_file(
     logger
 ):
     """处理单个音频文件的完整流程"""
+    start_time = asyncio.get_event_loop().time()
     try:
         logger.info(f"处理文件: {audio_file.title} - {audio_file.artist}")
         
@@ -102,19 +103,74 @@ async def process_single_audio_file(
         # 7. 组织文件夹
         final_path = organizer.organize_by_difficulty(downloaded_path, analysis)
         
-        logger.info(f"完成处理: {audio_file.title} -> {analysis.primary_difficulty_category.value}")
+        processing_time = asyncio.get_event_loop().time() - start_time
+        logger.info(f"完成处理: {audio_file.title} -> {analysis.primary_difficulty_category.value} (耗时: {processing_time:.1f}秒)")
         
         return {
             'audio_file': audio_file,
             'beatmap': best_match,
             'downloaded_path': downloaded_path,
             'final_path': final_path,
-            'analysis': analysis
+            'analysis': analysis,
+            'processing_time': processing_time
         }
         
     except Exception as e:
         logger.error(f"处理音频文件失败: {audio_file.title} - {e}")
         return None
+
+
+async def process_audio_files_concurrently(
+    audio_files,
+    searcher,
+    matcher,
+    scorer,
+    downloader,
+    analyzer,
+    organizer,
+    output_dir,
+    logger,
+    max_concurrent=3
+):
+    """并发处理音频文件列表"""
+    semaphore = asyncio.Semaphore(max_concurrent)
+    
+    async def process_with_semaphore(audio_file):
+        """使用信号量控制并发的处理函数"""
+        async with semaphore:
+            return await process_single_audio_file(
+                audio_file, searcher, matcher, scorer, downloader,
+                analyzer, organizer, output_dir, logger
+            )
+    
+    # 创建所有任务
+    tasks = [process_with_semaphore(audio_file) for audio_file in audio_files]
+    
+    # 使用进度条监控并发执行
+    results = []
+    completed = 0
+    
+    with tqdm(total=len(audio_files), desc="并发处理进度") as pbar:
+        # 使用 asyncio.as_completed 来获取完成的任务
+        for coro in asyncio.as_completed(tasks):
+            try:
+                result = await coro
+                results.append(result)
+                completed += 1
+                pbar.update(1)
+                
+                # 记录进度
+                if completed % 10 == 0 or completed == len(audio_files):
+                    success_count = sum(1 for r in results if r is not None)
+                    logger.info(f"并发进度: {completed}/{len(audio_files)}, 成功: {success_count}")
+                    
+            except Exception as e:
+                logger.error(f"并发处理任务失败: {e}")
+                results.append(None)
+                completed += 1
+                pbar.update(1)
+    
+    return results
 
 
 def simple_similarity(str1: str, str2: str) -> float:
@@ -220,18 +276,17 @@ async def main():
                     # 创建难度目录结构
                     organizer.create_difficulty_structure(output_dir)
                     
-                    # 3-7. 处理音频文件
-                    logger.info(f"步骤 3-7: 处理 {len(audio_files)} 个音频文件...")
+                    # 3-7. 并发处理音频文件
+                    logger.info(f"步骤 3-7: 并发处理 {len(audio_files)} 个音频文件...")
                     
-                    results = []
-                    with tqdm(total=len(audio_files), desc="处理进度") as pbar:
-                        for audio_file in audio_files:
-                            result = await process_single_audio_file(
-                                audio_file, searcher, matcher, scorer, downloader,
-                                analyzer, organizer, output_dir, logger
-                            )
-                            results.append(result)
-                            pbar.update(1)
+                    # 获取并发配置
+                    max_concurrent = getattr(config.performance, 'max_concurrent_tasks', 3)
+                    logger.info(f"使用并发数: {max_concurrent}")
+                    
+                    results = await process_audio_files_concurrently(
+                        audio_files, searcher, matcher, scorer, downloader,
+                        analyzer, organizer, output_dir, logger, max_concurrent
+                    )
                     
                     # 统计结果
                     successful_results = [r for r in results if r is not None]
