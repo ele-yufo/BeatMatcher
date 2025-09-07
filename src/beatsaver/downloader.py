@@ -1,4 +1,4 @@
-"""BeatSaver铺面下载器"""
+"""BeatSaver谱面下载器"""
 
 import asyncio
 import zipfile
@@ -14,7 +14,7 @@ from ..utils.exceptions import DownloadError, BeatSaverAPIError
 
 
 class BeatmapDownloader:
-    """铺面下载器"""
+    """谱面下载器"""
     
     def __init__(self, config: Config):
         self.config = config
@@ -30,17 +30,17 @@ class BeatmapDownloader:
         await self.api_client.close()
     
     async def download(self, beatmap: BeatSaverMap, output_dir: Path) -> Optional[Path]:
-        """下载铺面
+        """下载谱面
         
         Args:
-            beatmap: BeatSaver铺面信息
+            beatmap: BeatSaver谱面信息
             output_dir: 输出目录
             
         Returns:
             Optional[Path]: 下载的文件路径，失败返回None
         """
         if not beatmap.download_url:
-            self.logger.error(f"铺面没有下载链接: {beatmap.id}")
+            self.logger.error(f"谱面没有下载链接: {beatmap.id}")
             return None
         
         # 创建输出目录
@@ -52,10 +52,10 @@ class BeatmapDownloader:
         
         # 检查是否已经下载
         if zip_path.exists():
-            self.logger.info(f"铺面已存在，跳过下载: {zip_path}")
+            self.logger.info(f"谱面已存在，跳过下载: {zip_path}")
             return zip_path
         
-        self.logger.info(f"开始下载铺面: {beatmap.name} -> {zip_path}")
+        self.logger.info(f"开始下载谱面: {beatmap.name} -> {zip_path}")
         
         try:
             # 下载文件
@@ -70,17 +70,17 @@ class BeatmapDownloader:
                 zip_path.unlink(missing_ok=True)
                 raise DownloadError(beatmap.download_url, "下载的ZIP文件损坏")
             
-            self.logger.info(f"铺面下载完成: {zip_path} ({len(zip_data)} bytes)")
+            self.logger.info(f"谱面下载完成: {zip_path} ({len(zip_data)} bytes)")
             return zip_path
             
         except BeatSaverAPIError as e:
-            self.logger.error(f"下载铺面失败: {beatmap.id} - {e}")
+            self.logger.error(f"下载谱面失败: {beatmap.id} - {e}")
             # 清理可能存在的部分下载文件
             zip_path.unlink(missing_ok=True)
             return None
             
         except Exception as e:
-            self.logger.error(f"下载铺面时出现意外错误: {beatmap.id} - {e}")
+            self.logger.error(f"下载谱面时出现意外错误: {beatmap.id} - {e}")
             # 清理可能存在的部分下载文件
             zip_path.unlink(missing_ok=True)
             raise DownloadError(beatmap.download_url, str(e))
@@ -91,15 +91,15 @@ class BeatmapDownloader:
         output_dir: Path,
         max_concurrent: Optional[int] = None
     ) -> Dict[str, Optional[Path]]:
-        """批量下载铺面
+        """批量下载谱面
         
         Args:
-            beatmaps: 铺面列表
+            beatmaps: 谱面列表
             output_dir: 输出目录
             max_concurrent: 最大并发数
             
         Returns:
-            Dict[str, Optional[Path]]: 下载结果字典，键为铺面ID
+            Dict[str, Optional[Path]]: 下载结果字典，键为谱面ID
         """
         if not beatmaps:
             return {}
@@ -112,7 +112,7 @@ class BeatmapDownloader:
                 result = await self.download(beatmap, output_dir)
                 return beatmap.id, result
         
-        self.logger.info(f"开始批量下载 {len(beatmaps)} 个铺面 (并发数: {max_concurrent})")
+        self.logger.info(f"开始批量下载 {len(beatmaps)} 个谱面 (并发数: {max_concurrent})")
         
         # 创建下载任务
         tasks = [download_with_semaphore(beatmap) for beatmap in beatmaps]
@@ -138,7 +138,7 @@ class BeatmapDownloader:
         return download_results
     
     def extract_beatmap(self, zip_path: Path, extract_dir: Optional[Path] = None) -> Optional[Path]:
-        """解压铺面文件
+        """解压谱面文件
         
         Args:
             zip_path: ZIP文件路径
@@ -157,7 +157,7 @@ class BeatmapDownloader:
         extract_dir.mkdir(parents=True, exist_ok=True)
         
         try:
-            self.logger.debug(f"解压铺面: {zip_path} -> {extract_dir}")
+            self.logger.debug(f"解压谱面: {zip_path} -> {extract_dir}")
             
             with zipfile.ZipFile(zip_path, 'r') as zip_file:
                 # 检查ZIP文件完整性
@@ -168,28 +168,28 @@ class BeatmapDownloader:
             
             # 验证关键文件是否存在
             if not self._validate_beatmap_files(extract_dir):
-                self.logger.warning(f"铺面文件不完整: {extract_dir}")
+                self.logger.warning(f"谱面文件不完整: {extract_dir}")
             
-            self.logger.info(f"铺面解压完成: {extract_dir}")
+            self.logger.info(f"谱面解压完成: {extract_dir}")
             return extract_dir
             
         except zipfile.BadZipFile:
             self.logger.error(f"ZIP文件损坏: {zip_path}")
             return None
         except Exception as e:
-            self.logger.error(f"解压铺面失败: {zip_path} - {e}")
+            self.logger.error(f"解压谱面失败: {zip_path} - {e}")
             return None
     
     def _generate_safe_filename(self, beatmap: BeatSaverMap) -> str:
         """生成安全的文件名
         
         Args:
-            beatmap: 铺面信息
+            beatmap: 谱面信息
             
         Returns:
             str: 安全的文件名
         """
-        # 使用铺面ID和标题生成文件名
+        # 使用谱面ID和标题生成文件名
         song_name = beatmap.metadata.song_name or "unknown"
         artist_name = beatmap.metadata.song_author_name or "unknown"
         
@@ -273,10 +273,10 @@ class BeatmapDownloader:
             return False
     
     def _validate_beatmap_files(self, beatmap_dir: Path) -> bool:
-        """验证铺面文件是否完整
+        """验证谱面文件是否完整
         
         Args:
-            beatmap_dir: 铺面目录
+            beatmap_dir: 谱面目录
             
         Returns:
             bool: 文件是否完整

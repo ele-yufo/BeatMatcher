@@ -19,15 +19,23 @@ class DensityAnalyzer:
         self.parser = BeatmapParser()
     
     def analyze_beatmap(self, beatmap_path: Path) -> Optional[BeatmapAnalysis]:
-        """分析铺面难度
+        """分析谱面难度
         
         Args:
-            beatmap_path: 铺面文件路径（ZIP文件或解压后的目录）
+            beatmap_path: 谱面文件路径（ZIP文件或解压后的目录）
             
         Returns:
             Optional[BeatmapAnalysis]: 分析结果，失败返回None
         """
         try:
+            # 检查文件大小，跳过超大谱面避免卡死
+            if beatmap_path.is_file():
+                file_size = beatmap_path.stat().st_size
+                max_size = 50 * 1024 * 1024  # 50MB限制
+                if file_size > max_size:
+                    self.logger.warning(f"谱面文件过大 ({file_size/1024/1024:.1f}MB)，跳过分析: {beatmap_path.name}")
+                    return None
+            
             # 确定处理路径
             if beatmap_path.is_file() and beatmap_path.suffix.lower() == '.zip':
                 # 如果是ZIP文件，需要先解压
@@ -46,17 +54,33 @@ class DensityAnalyzer:
                 # 如果是目录，直接分析
                 analysis_path = beatmap_path
             else:
-                raise BeatmapParsingError(str(beatmap_path), "无效的铺面路径")
+                raise BeatmapParsingError(str(beatmap_path), "无效的谱面路径")
             
-            self.logger.info(f"开始分析铺面难度: {analysis_path}")
+            self.logger.info(f"开始分析谱面难度: {analysis_path}")
             
-            # 解析铺面
-            analysis = self.parser.parse_beatmap_directory(analysis_path)
-            if not analysis:
+            # 解析谱面 - 添加超时保护
+            import signal
+            
+            def timeout_handler(signum, frame):
+                raise TimeoutError("谱面分析超时")
+            
+            # 设置30秒超时
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(30)
+            
+            try:
+                analysis = self.parser.parse_beatmap_directory(analysis_path)
+                signal.alarm(0)  # 取消超时
+                
+                if not analysis:
+                    return None
+            except TimeoutError:
+                signal.alarm(0)  # 取消超时
+                self.logger.warning(f"谱面分析超时，跳过: {beatmap_path.name}")
                 return None
             
             # 记录分析结果
-            self.logger.info(f"铺面分析完成: {analysis.song_name}")
+            self.logger.info(f"谱面分析完成: {analysis.song_name}")
             self.logger.info(f"  难度数量: {len(analysis.difficulties)}")
             self.logger.info(f"  最大NPS: {analysis.max_nps:.2f}")
             self.logger.info(f"  主要难度分类: {analysis.primary_difficulty_category.value}")
