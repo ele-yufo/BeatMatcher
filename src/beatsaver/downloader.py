@@ -77,6 +77,12 @@ class BeatmapDownloader:
             self.logger.info(f"谱面已存在于难度文件夹中，跳过下载: {existing_path}")
             return existing_path
         
+        # 下载前最后一次检查（双重检查模式，减少并发竞态）
+        final_check = self._find_existing_beatmap(output_dir, safe_name, beatmap.id)
+        if final_check:
+            self.logger.info(f"下载前最终检查发现已存在谱面: {final_check}")
+            return final_check
+        
         self.logger.info(f"开始下载谱面: {beatmap.name} -> {zip_path}")
         
         try:
@@ -335,10 +341,11 @@ class BeatmapDownloader:
                 if not item.is_dir():
                     continue
                 
-                # 检查是否是难度文件夹
+                # 检查是否是难度文件夹（可配置的关键词）
                 item_name_lower = item.name.lower()
-                is_difficulty_folder = any(keyword in item_name_lower for keyword in 
+                difficulty_keywords = getattr(self.config, 'difficulty_keywords', 
                     ['easy', 'medium', 'hard', 'blocks', 'nps', '难度'])
+                is_difficulty_folder = any(keyword in item_name_lower for keyword in difficulty_keywords)
                 
                 if is_difficulty_folder:
                     # 在难度文件夹中搜索匹配的谱面

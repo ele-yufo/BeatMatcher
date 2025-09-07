@@ -11,31 +11,48 @@ import argparse
 from loguru import logger
 
 
-def find_duplicate_beatmaps(directory: Path) -> dict:
+def find_duplicate_beatmaps(directory: Path, max_depth: int = 3) -> dict:
     """查找重复的谱面文件夹
     
     Args:
         directory: 要搜索的目录
+        max_depth: 最大搜索深度，防止性能问题
         
     Returns:
         dict: 重复谱面的分组，键为谱面ID，值为路径列表
     """
     beatmap_groups = defaultdict(list)
     
-    # 递归搜索所有文件夹
-    for item in directory.rglob("*"):
-        if not item.is_dir():
-            continue
-            
+    def _scan_directory(path: Path, current_depth: int):
+        """递归扫描目录，限制深度"""
+        if current_depth >= max_depth:
+            return
+        
+        try:
+            for item in path.iterdir():
+                if item.is_dir():
+                    _process_potential_beatmap(item)
+                    _scan_directory(item, current_depth + 1)
+        except (OSError, PermissionError):
+            logger.debug(f"跳过无法访问的目录: {path}")
+    
+    def _process_potential_beatmap(item: Path):
+        """处理可能的谱面文件夹"""
         # 提取谱面ID（更严格的匹配规则）
         name = item.name
         # 匹配类似 "15169_", "7345_", "abc123_" 的模式
         if "_" in name:
             potential_id = name.split("_")[0]
-            # 使用更严格的ID验证：BeatSaver ID格式
+            # 使用更全面的ID验证：支持多种BeatSaver ID格式
             import re
-            if potential_id and re.match(r'^[0-9a-f]{1,6}$', potential_id, re.IGNORECASE):
+            if potential_id and (
+                re.match(r'^[0-9a-fA-F]{1,8}$', potential_id) or  # 十六进制ID
+                re.match(r'^[0-9]{1,8}$', potential_id)           # 纯数字ID
+            ):
                 beatmap_groups[potential_id].append(item)
+    
+    # 启动扫描
+    _scan_directory(directory, 0)
     
     # 只返回有重复的
     duplicates = {bid: paths for bid, paths in beatmap_groups.items() if len(paths) > 1}
