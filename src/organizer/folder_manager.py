@@ -59,7 +59,8 @@ class FolderManager:
             return beatmap_path
         
         # 获取文件操作锁
-        async with self._get_operation_lock(beatmap_path):
+        operation_lock = await self._get_operation_lock(beatmap_path)
+        async with operation_lock:
             try:
                 # 如果没有提供分析结果，则进行分析
                 if analysis is None:
@@ -102,10 +103,10 @@ class FolderManager:
         beatmap_paths: List[Path], 
         analyses: Optional[Dict[str, BeatmapAnalysis]] = None
     ) -> Dict[str, Optional[Path]]:
-        """批量组织铺面文件
+        """批量组织谱面文件
         
         Args:
-            beatmap_paths: 铺面文件路径列表
+            beatmap_paths: 谱面文件路径列表
             analyses: 预先分析的结果字典
             
         Returns:
@@ -114,7 +115,7 @@ class FolderManager:
         results = {}
         analyses = analyses or {}
         
-        self.logger.info(f"开始批量组织 {len(beatmap_paths)} 个铺面文件")
+        self.logger.info(f"开始批量组织 {len(beatmap_paths)} 个谱面文件")
         
         for i, path in enumerate(beatmap_paths, 1):
             self.logger.info(f"组织进度: {i}/{len(beatmap_paths)} - {path.name}")

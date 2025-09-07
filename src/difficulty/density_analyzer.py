@@ -58,25 +58,33 @@ class DensityAnalyzer:
             
             self.logger.info(f"开始分析谱面难度: {analysis_path}")
             
-            # 解析谱面 - 添加超时保护
-            import signal
+            # 解析谱面 - 跨平台超时保护
+            import platform
+            import threading
+            import time
             
-            def timeout_handler(signum, frame):
-                raise TimeoutError("谱面分析超时")
+            analysis = None
+            timeout_occurred = False
             
-            # 设置30秒超时
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(30)
+            def parse_with_timeout():
+                nonlocal analysis, timeout_occurred
+                try:
+                    analysis = self.parser.parse_beatmap_directory(analysis_path)
+                except Exception as e:
+                    self.logger.error(f"谱面解析异常: {e}")
+                    analysis = None
             
-            try:
-                analysis = self.parser.parse_beatmap_directory(analysis_path)
-                signal.alarm(0)  # 取消超时
-                
-                if not analysis:
-                    return None
-            except TimeoutError:
-                signal.alarm(0)  # 取消超时
+            # 使用线程实现跨平台超时
+            parse_thread = threading.Thread(target=parse_with_timeout)
+            parse_thread.daemon = True
+            parse_thread.start()
+            parse_thread.join(timeout=30)  # 30秒超时
+            
+            if parse_thread.is_alive():
                 self.logger.warning(f"谱面分析超时，跳过: {beatmap_path.name}")
+                return None
+            
+            if not analysis:
                 return None
             
             # 记录分析结果
@@ -92,14 +100,14 @@ class DensityAnalyzer:
             return analysis
             
         except Exception as e:
-            self.logger.error(f"分析铺面失败: {beatmap_path} - {e}")
+            self.logger.error(f"分析谱面失败: {beatmap_path} - {e}")
             return None
     
     def get_difficulty_category(self, analysis: BeatmapAnalysis) -> DifficultyCategory:
-        """获取铺面的难度分类
+        """获取谱面的难度分类
         
         Args:
-            analysis: 铺面分析结果
+            analysis: 谱面分析结果
             
         Returns:
             DifficultyCategory: 难度分类
@@ -128,17 +136,17 @@ class DensityAnalyzer:
         return folder_names.get(category, "Unknown")
     
     def analyze_batch(self, beatmap_paths: List[Path]) -> Dict[str, Optional[BeatmapAnalysis]]:
-        """批量分析铺面难度
+        """批量分析谱面难度
         
         Args:
-            beatmap_paths: 铺面路径列表
+            beatmap_paths: 谱面路径列表
             
         Returns:
             Dict[str, Optional[BeatmapAnalysis]]: 分析结果字典
         """
         results = {}
         
-        self.logger.info(f"开始批量分析 {len(beatmap_paths)} 个铺面")
+        self.logger.info(f"开始批量分析 {len(beatmap_paths)} 个谱面")
         
         for i, path in enumerate(beatmap_paths, 1):
             self.logger.info(f"分析进度: {i}/{len(beatmap_paths)} - {path.name}")
