@@ -408,8 +408,17 @@ class BeatmapDownloader:
         target_path = extract_dir / member.filename
         
         try:
-            # 解析路径，防止符号链接攻击
-            target_resolved = target_path.resolve()
+            # 检查是否为符号链接（防止符号链接攻击）
+            if target_path.exists() and target_path.is_symlink():
+                self.logger.warning(f"跳过符号链接文件: {member.filename}")
+                return False
+            
+            # 解析路径，防止符号链接攻击 - 使用strict=True增强安全性
+            try:
+                target_resolved = target_path.resolve(strict=True)
+            except (OSError, RuntimeError):
+                # strict=True在路径不存在时会抛出异常，这是正常的
+                target_resolved = target_path.resolve()
             
             # 检查目标路径是否在预期目录内
             if not str(target_resolved).startswith(str(extract_dir.resolve())):
