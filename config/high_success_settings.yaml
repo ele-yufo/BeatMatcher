@@ -53,17 +53,17 @@ difficulty:
     easy: 
       min: 0
       max: 4
-      folder: "Easy (0-4 blocks/s)"
+      folder: "Easy (0-4 blocks per s)"
     
     medium:
       min: 4
       max: 7
-      folder: "Medium (4-7 blocks/s)"
+      folder: "Medium (4-7 blocks per s)"
     
     hard:
       min: 7
       max: 999
-      folder: "Hard (7+ blocks/s)"
+      folder: "Hard (7+ blocks per s)"
 
 # 文件处理配置
 files:

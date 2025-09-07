@@ -163,8 +163,8 @@ class BeatmapDownloader:
                 # 检查ZIP文件完整性
                 zip_file.testzip()
                 
-                # 解压所有文件
-                zip_file.extractall(extract_dir)
+                # 安全解压 - 防止目录遍历攻击
+                self._safe_extract_all(zip_file, extract_dir)
             
             # 验证关键文件是否存在
             if not self._validate_beatmap_files(extract_dir):
@@ -295,6 +295,69 @@ class BeatmapDownloader:
             return False
         
         return True
+    
+    def _safe_extract_all(self, zip_file: zipfile.ZipFile, extract_dir: Path) -> None:
+        """安全解压ZIP文件，防止目录遍历攻击
+        
+        Args:
+            zip_file: ZIP文件对象
+            extract_dir: 目标解压目录
+        """
+        import os
+        
+        extract_dir_resolved = extract_dir.resolve()
+        
+        for member in zip_file.infolist():
+            # 检查文件名是否安全
+            if self._is_safe_zip_member(member, extract_dir_resolved):
+                try:
+                    zip_file.extract(member, extract_dir)
+                except Exception as e:
+                    self.logger.warning(f"跳过问题文件 {member.filename}: {e}")
+                    continue
+            else:
+                self.logger.warning(f"跳过不安全的文件路径: {member.filename}")
+    
+    def _is_safe_zip_member(self, member: zipfile.ZipInfo, extract_dir: Path) -> bool:
+        """检查ZIP成员是否安全
+        
+        Args:
+            member: ZIP文件成员
+            extract_dir: 解压目录
+            
+        Returns:
+            bool: 是否安全
+        """
+        import os
+        
+        # 获取目标文件路径
+        target_path = extract_dir / member.filename
+        
+        try:
+            # 解析路径，防止符号链接攻击
+            target_resolved = target_path.resolve()
+            
+            # 检查目标路径是否在预期目录内
+            if not str(target_resolved).startswith(str(extract_dir.resolve())):
+                return False
+            
+            # 检查文件名是否包含危险字符
+            filename = member.filename
+            
+            # Unix路径检查 - 防止目录遍历
+            if '..' in filename or filename.startswith('/'):
+                return False
+                
+            # 检查文件大小限制（防止ZIP炸弹）
+            if member.file_size > 100 * 1024 * 1024:  # 100MB限制
+                self.logger.warning(f"文件过大，跳过: {filename} ({member.file_size / 1024 / 1024:.1f}MB)")
+                return False
+            
+            return True
+            
+        except (OSError, ValueError) as e:
+            self.logger.warning(f"路径解析失败: {member.filename} - {e}")
+            return False
     
     async def close(self):
         """关闭下载器"""

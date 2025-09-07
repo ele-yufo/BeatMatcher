@@ -3,6 +3,8 @@
 import shutil
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+import asyncio
+import hashlib
 from loguru import logger
 
 from ..difficulty.models import BeatmapAnalysis, DifficultyCategory
@@ -19,6 +21,10 @@ class FolderManager:
         self.logger = logger.bind(name=self.__class__.__name__)
         self.density_analyzer = DensityAnalyzer(config)
         
+        # 文件操作锁机制（防止并发竞态）
+        self._operation_locks = {}
+        self._lock_manager_lock = asyncio.Lock()
+        
         # 缓存文件夹名称以提高性能
         self._folder_cache = {}
         for category in DifficultyCategory:
@@ -26,23 +32,23 @@ class FolderManager:
             if category_config:
                 self._folder_cache[category] = category_config.folder
             else:
-                # 使用默认名称
+                # 使用默认名称（避免文件系统非法字符）
                 defaults = {
-                    DifficultyCategory.EASY: "Easy (0-4 blocks/s)",
-                    DifficultyCategory.MEDIUM: "Medium (4-7 blocks/s)", 
-                    DifficultyCategory.HARD: "Hard (7+ blocks/s)"
+                    DifficultyCategory.EASY: "Easy (0-4 blocks per s)",
+                    DifficultyCategory.MEDIUM: "Medium (4-7 blocks per s)", 
+                    DifficultyCategory.HARD: "Hard (7+ blocks per s)"
                 }
                 self._folder_cache[category] = defaults.get(category, "Unknown")
     
-    def organize_by_difficulty(
+    async def organize_by_difficulty(
         self, 
         beatmap_path: Path, 
         analysis: Optional[BeatmapAnalysis] = None
     ) -> Optional[Path]:
-        """根据难度组织铺面文件
+        """根据难度组织谱面文件/文件夹
         
         Args:
-            beatmap_path: 铺面文件路径
+            beatmap_path: 谱面文件路径或解压后的文件夹路径
             analysis: 预先分析的结果，如果为None则重新分析
             
         Returns:
@@ -52,38 +58,44 @@ class FolderManager:
             self.logger.debug("难度分类功能已禁用")
             return beatmap_path
         
-        try:
-            # 如果没有提供分析结果，则进行分析
-            if analysis is None:
-                analysis = self.density_analyzer.analyze_beatmap(beatmap_path)
-                if not analysis:
-                    self.logger.warning(f"无法分析铺面难度，跳过分类: {beatmap_path}")
-                    return beatmap_path
-            
-            # 确定目标目录
-            category = analysis.primary_difficulty_category
-            target_dir = self._get_category_directory(beatmap_path.parent, category)
-            target_dir.mkdir(parents=True, exist_ok=True)
-            
-            # 生成目标文件路径
-            target_path = target_dir / beatmap_path.name
-            
-            # 如果目标文件已存在，处理重名
-            if target_path.exists() and target_path != beatmap_path:
-                target_path = self._handle_duplicate_filename(target_path)
-            
-            # 移动文件 - 使用Path对象确保跨平台兼容
-            if target_path != beatmap_path:
-                self.logger.info(f"移动铺面到难度文件夹: {beatmap_path.name} -> {category.value}")
-                shutil.move(beatmap_path, target_path)
-                return target_path
-            else:
-                self.logger.debug(f"铺面已在正确位置: {beatmap_path}")
-                return beatmap_path
+        # 获取文件操作锁
+        async with self._get_operation_lock(beatmap_path):
+            try:
+                # 如果没有提供分析结果，则进行分析
+                if analysis is None:
+                    analysis = self.density_analyzer.analyze_beatmap(beatmap_path)
+                    if not analysis:
+                        self.logger.warning(f"无法分析谱面难度，跳过分类: {beatmap_path}")
+                        return beatmap_path
                 
-        except Exception as e:
-            self.logger.error(f"组织文件失败: {beatmap_path} - {e}")
-            raise FileOrganizationError(str(beatmap_path), "", str(e))
+                # 确定目标目录
+                category = analysis.primary_difficulty_category
+                target_dir = self._get_category_directory(beatmap_path.parent, category)
+                target_dir.mkdir(parents=True, exist_ok=True)
+                
+                # 生成目标文件路径
+                target_path = target_dir / beatmap_path.name
+                
+                # 如果目标文件已存在，处理重名
+                if target_path.exists() and target_path != beatmap_path:
+                    target_path = self._handle_duplicate_filename(target_path)
+                
+                # 安全移动文件或文件夹 - 原子性操作
+                if target_path != beatmap_path:
+                    self.logger.info(f"移动谱面到难度文件夹: {beatmap_path.name} -> {category.value}")
+                    success = await self._atomic_move_async(beatmap_path, target_path)
+                    if success:
+                        return target_path
+                    else:
+                        self.logger.error(f"移动失败: {beatmap_path} -> {target_path}")
+                        return beatmap_path
+                else:
+                    self.logger.debug(f"谱面已在正确位置: {beatmap_path}")
+                    return beatmap_path
+                    
+            except Exception as e:
+                self.logger.error(f"组织文件失败: {beatmap_path} - {e}")
+                raise FileOrganizationError(str(beatmap_path), "", str(e))
     
     def organize_batch(
         self, 
@@ -158,19 +170,26 @@ class FolderManager:
             "unorganized_files": 0
         }
         
-        # 统计各难度目录的文件数
+        # 统计各难度目录的文件数（包括文件夹和ZIP文件）
         for category in DifficultyCategory:
             category_dir = self._get_category_directory(base_dir, category)
             if category_dir.exists():
-                file_count = len(list(category_dir.glob("*.zip")))
+                # 统计文件夹（解压的谱面）和ZIP文件
+                folder_count = len([p for p in category_dir.iterdir() if p.is_dir()])
+                zip_count = len(list(category_dir.glob("*.zip")))
+                total_count = folder_count + zip_count
                 stats["categories"][category.value] = {
-                    "count": file_count,
+                    "count": total_count,
+                    "folders": folder_count,
+                    "zip_files": zip_count,
                     "directory": str(category_dir)
                 }
-                stats["total_files"] += file_count
+                stats["total_files"] += total_count
             else:
                 stats["categories"][category.value] = {
                     "count": 0,
+                    "folders": 0,
+                    "zip_files": 0,
                     "directory": str(category_dir)
                 }
         
@@ -339,3 +358,122 @@ class FolderManager:
         
         self.logger.info(f"恢复完成: 移动 {moved_count} 个文件，删除 {empty_dirs_removed} 个空目录")
         return moved_count
+    
+    def _atomic_move(self, source: Path, target: Path) -> bool:
+        """原子性移动文件/文件夹，防止并发操作冲突
+        
+        Args:
+            source: 源路径
+            target: 目标路径
+            
+        Returns:
+            bool: 是否成功移动
+        """
+        import tempfile
+        import time
+        import random
+        
+        # 创建临时文件名用于原子操作
+        temp_name = f".tmp_{int(time.time())}_{random.randint(1000, 9999)}_{target.name}"
+        temp_target = target.parent / temp_name
+        
+        try:
+            # 第一步：移动到临时位置
+            self.logger.debug(f"原子移动步骤1: {source} -> {temp_target}")
+            shutil.move(str(source), str(temp_target))
+            
+            # 第二步：从临时位置移动到最终位置（原子操作）
+            self.logger.debug(f"原子移动步骤2: {temp_target} -> {target}")
+            temp_target.rename(target)
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"原子移动失败: {source} -> {target}, 错误: {e}")
+            
+            # 清理：如果临时文件存在，尝试恢复或清理
+            if temp_target.exists():
+                try:
+                    # 尝试恢复到原位置
+                    if not source.exists():
+                        self.logger.info(f"恢复文件到原位置: {temp_target} -> {source}")
+                        shutil.move(str(temp_target), str(source))
+                    else:
+                        # 如果原文件已存在，删除临时文件
+                        if temp_target.is_dir():
+                            shutil.rmtree(temp_target)
+                        else:
+                            temp_target.unlink()
+                        self.logger.debug(f"清理临时文件: {temp_target}")
+                except Exception as cleanup_error:
+                    self.logger.warning(f"清理临时文件失败: {temp_target} - {cleanup_error}")
+            
+            return False
+    
+    async def _get_operation_lock(self, path: Path) -> asyncio.Lock:
+        """获取文件操作锁，基于路径哈希
+        
+        Args:
+            path: 文件路径
+            
+        Returns:
+            asyncio.Lock: 对应的锁对象
+        """
+        # 使用路径哈希作为锁键，避免不同路径间的冲突
+        path_hash = hashlib.md5(str(path.resolve()).encode()).hexdigest()
+        
+        async with self._lock_manager_lock:
+            if path_hash not in self._operation_locks:
+                self._operation_locks[path_hash] = asyncio.Lock()
+            return self._operation_locks[path_hash]
+    
+    async def _atomic_move_async(self, source: Path, target: Path) -> bool:
+        """异步原子性移动文件/文件夹，防止并发操作冲突
+        
+        Args:
+            source: 源路径
+            target: 目标路径
+            
+        Returns:
+            bool: 是否成功移动
+        """
+        import tempfile
+        import time
+        import random
+        
+        # 创建临时文件名用于原子操作
+        temp_name = f".tmp_{int(time.time())}_{random.randint(1000, 9999)}_{target.name}"
+        temp_target = target.parent / temp_name
+        
+        try:
+            # 第一步：移动到临时位置
+            self.logger.debug(f"异步原子移动步骤1: {source} -> {temp_target}")
+            await asyncio.to_thread(shutil.move, str(source), str(temp_target))
+            
+            # 第二步：从临时位置移动到最终位置（原子操作）
+            self.logger.debug(f"异步原子移动步骤2: {temp_target} -> {target}")
+            await asyncio.to_thread(temp_target.rename, target)
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"异步原子移动失败: {source} -> {target}, 错误: {e}")
+            
+            # 清理：如果临时文件存在，尝试恢复或清理
+            if temp_target.exists():
+                try:
+                    # 尝试恢复到原位置
+                    if not source.exists():
+                        self.logger.info(f"恢复文件到原位置: {temp_target} -> {source}")
+                        await asyncio.to_thread(shutil.move, str(temp_target), str(source))
+                    else:
+                        # 如果原文件已存在，删除临时文件
+                        if temp_target.is_dir():
+                            await asyncio.to_thread(shutil.rmtree, temp_target)
+                        else:
+                            await asyncio.to_thread(temp_target.unlink)
+                        self.logger.debug(f"清理临时文件: {temp_target}")
+                except Exception as cleanup_error:
+                    self.logger.warning(f"清理临时文件失败: {temp_target} - {cleanup_error}")
+            
+            return False

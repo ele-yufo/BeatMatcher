@@ -70,16 +70,24 @@ async def process_single_audio_file(
             logger.warning(f"无合适匹配: {audio_file.title} - {audio_file.artist}")
             return None
         
-        # 3. 直接下载谱面
-        downloaded_path = await downloader.download(best_match, output_dir)
-        if not downloaded_path:
+        # 3. 下载谱面ZIP文件
+        downloaded_zip_path = await downloader.download(best_match, output_dir)
+        if not downloaded_zip_path:
             logger.error(f"下载失败: {best_match.name}")
             return None
         
-        # 6. 分析难度
-        analysis = analyzer.analyze_beatmap(downloaded_path)
+        # 4. 解压ZIP文件到临时目录
+        extracted_dir = downloader.extract_beatmap(downloaded_zip_path)
+        if not extracted_dir:
+            logger.error(f"解压失败: {downloaded_zip_path}")
+            # 清理失败的ZIP文件
+            downloaded_zip_path.unlink(missing_ok=True)
+            return None
+        
+        # 5. 分析难度
+        analysis = analyzer.analyze_beatmap(extracted_dir)
         if not analysis:
-            logger.warning(f"难度分析失败，将使用默认中等难度分类: {downloaded_path}")
+            logger.warning(f"难度分析失败，将使用默认中等难度分类: {extracted_dir}")
             # 创建一个默认的分析结果用于中等难度分类
             from src.difficulty.models import DifficultyStats, BeatmapAnalysis, DifficultyCategory
             default_stats = DifficultyStats(
@@ -95,13 +103,21 @@ async def process_single_audio_file(
                 characteristic="Standard"
             )
             analysis = BeatmapAnalysis(
-                beatmap_id=downloaded_path.stem,
+                beatmap_id=extracted_dir.name,
                 song_name=audio_file.title or "Unknown",
                 difficulties=[default_stats]
             )
         
-        # 7. 组织文件夹
-        final_path = organizer.organize_by_difficulty(downloaded_path, analysis)
+        # 6. 组织到难度文件夹
+        final_path = await organizer.organize_by_difficulty(extracted_dir, analysis)
+        
+        # 7. 清理原始ZIP文件（只保留解压后的文件夹）
+        try:
+            downloaded_zip_path.unlink()
+            logger.debug(f"已删除ZIP文件: {downloaded_zip_path}")
+        except Exception as e:
+            logger.warning(f"删除ZIP文件失败: {downloaded_zip_path} - {e}")
+            # 不影响主流程，继续处理
         
         processing_time = asyncio.get_event_loop().time() - start_time
         logger.info(f"完成处理: {audio_file.title} -> {analysis.primary_difficulty_category.value} (耗时: {processing_time:.1f}秒)")
@@ -109,7 +125,8 @@ async def process_single_audio_file(
         return {
             'audio_file': audio_file,
             'beatmap': best_match,
-            'downloaded_path': downloaded_path,
+            'downloaded_zip_path': downloaded_zip_path,
+            'extracted_dir': extracted_dir,
             'final_path': final_path,
             'analysis': analysis,
             'processing_time': processing_time
@@ -117,6 +134,21 @@ async def process_single_audio_file(
         
     except Exception as e:
         logger.error(f"处理音频文件失败: {audio_file.title} - {e}")
+        
+        # 错误恢复：清理可能产生的临时文件
+        try:
+            # 如果有已下载的ZIP文件，清理它
+            if 'downloaded_zip_path' in locals() and downloaded_zip_path and downloaded_zip_path.exists():
+                downloaded_zip_path.unlink()
+                logger.debug(f"清理失败任务的ZIP文件: {downloaded_zip_path}")
+            
+            # 如果有已解压的目录但处理失败，保留它（用户可能需要手动处理）
+            if 'extracted_dir' in locals() and extracted_dir and extracted_dir.exists():
+                logger.info(f"保留部分处理的文件夹以供手动检查: {extracted_dir}")
+                
+        except Exception as cleanup_error:
+            logger.warning(f"清理失败任务时出错: {cleanup_error}")
+        
         return None
 
 
@@ -309,10 +341,10 @@ async def main():
                         
                         # 显示组织统计
                         org_stats = organizer.get_category_statistics(output_dir)
-                        logger.info(f"文件组织统计: 总共 {org_stats['total_files']} 个文件")
+                        logger.info(f"文件组织统计: 总共 {org_stats['total_files']} 个谱面")
                         for category, info in org_stats['categories'].items():
                             if info['count'] > 0:
-                                logger.info(f"  {category}: {info['count']} 个文件")
+                                logger.info(f"  {category}: {info['count']} 个谱面（文件夹: {info['folders']}, ZIP: {info['zip_files']}）")
             else:
                 # 模拟运行模式
                 logger.info(f"步骤 3-4: 模拟搜索和匹配 {len(audio_files)} 个音频文件...")
